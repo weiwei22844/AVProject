@@ -26,6 +26,8 @@
 *.res
 *.htm
 *.manifest
+*.pch
+*.dep
 
 # output file
-SimplePlayer\Debug
+SimplePlayer/Debug
