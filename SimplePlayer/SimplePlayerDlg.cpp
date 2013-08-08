@@ -6,6 +6,10 @@
 #include "SimplePlayerDlg.h"
 #include "TList.h"
 #include <process.h>
+#include "decode/hvdh264videodecode.h"
+
+#define COMPILE_MULTIMON_STUBS
+#include "multimon.h"
  
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -19,6 +23,11 @@ extern CALLBACKINFO cb;
 extern BOOL g_bOneShot;
 extern HWND g_hwnd;
 extern CTList m_list;
+
+#define WM_DISPLAY_FRAME WM_USER+101
+
+#define MAX_FRAME_LEN 1024*500
+#define MAX_DECBUF_LEN 1920*1080*4
 /////////////////////////////////////////////////////////////////////////////
 // CSimplePlayerDlg dialog
 
@@ -35,6 +44,9 @@ CSimplePlayerDlg::CSimplePlayerDlg(CWnd* pParent /*=NULL*/)
 	mSliderTimer = 0;
     m_hThread = NULL;
     m_bThdRun = FALSE;
+    m_Decoder = NULL;
+    m_bPlaying = FALSE;
+    m_bPause = FALSE;
 }
 
 CSimplePlayerDlg::~CSimplePlayerDlg()
@@ -70,6 +82,7 @@ BEGIN_MESSAGE_MAP(CSimplePlayerDlg, CDialog)
 	ON_BN_CLICKED(IDC_BTN_RATENORMAL, OnBtnRatenormal)
 	//}}AFX_MSG_MAP
 	ON_MESSAGE(WM_GRAPHNOTIFY, OnGraphNotify)
+    ON_MESSAGE(WM_DISPLAY_FRAME,OnDisplayFrameMsg)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -111,16 +124,16 @@ void CSimplePlayerDlg::OnPaint()
 
 		SendMessage(WM_ICONERASEBKGND, (WPARAM) dc.GetSafeHdc(), 0);
 
-		// Center icon in client rectangle
-		int cxIcon = GetSystemMetrics(SM_CXICON);
-		int cyIcon = GetSystemMetrics(SM_CYICON);
-		CRect rect;
-		GetClientRect(&rect);
-		int x = (rect.Width() - cxIcon + 1) / 2;
-		int y = (rect.Height() - cyIcon + 1) / 2;
+        // Center icon in client rectangle
+        int cxIcon = GetSystemMetrics(SM_CXICON);
+        int cyIcon = GetSystemMetrics(SM_CYICON);
+        CRect rect;
+        GetClientRect(&rect);
+        int x = (rect.Width() - cxIcon + 1) / 2;
+        int y = (rect.Height() - cyIcon + 1) / 2;
 
-		// Draw the icon
-		dc.DrawIcon(x, y, m_hIcon);
+        // Draw the icon
+        dc.DrawIcon(x, y, m_hIcon);
 	}
 	else
 	{
@@ -135,10 +148,17 @@ HCURSOR CSimplePlayerDlg::OnQueryDragIcon()
 	return (HCURSOR) m_hIcon;
 }
 
+CString GetSuffix(CString strFileName)
+{
+    CString str = strFileName.Right(strFileName.GetLength() - strFileName.ReverseFind('.') - 1);
+    return str.MakeLower();
+}
+
 void CSimplePlayerDlg::OnButtonOpen() 
 {
 	// TODO: Add your control notification handler code here
-	CString    strFilter = "AVI File (*.avi)|*.avi|";
+	CString strFilter = "Raw H264 File(*.h264;*.264)|*.h264;*.264|";
+    strFilter += "AVI File (*.avi)|*.avi|";
 	strFilter += "MPEG File (*.mpg;*.mpeg)|*.mpg;*.mpeg|";
 	strFilter += "Mp3 File (*.mp3)|*.mp3|";
 	strFilter += "Wave File (*.wav)|*.wav|";
@@ -149,70 +169,197 @@ void CSimplePlayerDlg::OnButtonOpen()
 	{
 		mSourceFile = dlgOpen.GetPathName();
 		// Rebuild the file playback filter graph
-		CreateGraph();
+        CString csSuf;
+        csSuf = GetSuffix(mSourceFile);
+        if(csSuf.Compare("h264") == 0 || csSuf.Compare("264") == 0){
+            if(!m_Decoder)
+                m_Decoder = new HVDH264VideoDecoder;
+            m_nWidth = m_nHeight = 0;
+            m_Decoder->reset();
+        }else{
+		    CreateGraph();
+        }
 	}
+}
+
+//AS by tiany for test on 20060403
+int FindStartCode (unsigned char *Buf, int zeros_in_startcode)
+{
+    int info;
+    int i;
+
+    info = 1;
+    for (i = 0; i < zeros_in_startcode; i++)
+        if(Buf[i] != 0)
+            info = 0;
+    if(Buf[i] != 1)
+        info = 0;
+
+    return info;
+}
+
+int getNextNal(FILE* inpf, unsigned char* Buf, int nLen)
+{
+    int pos = 0;
+    int StartCodeFound = 0;
+    int info2 = 0;
+    int info3 = 0;
+    while(!feof(inpf) && (Buf[pos++]=fgetc(inpf))==0){
+        if(pos >= nLen){
+            return pos;
+        }
+    }
+
+    while (!StartCodeFound)
+    {
+        if (feof (inpf))
+        {
+            return pos-1;
+        }
+        if(pos>=nLen)
+            return pos;
+        Buf[pos++] = fgetc(inpf);
+        info3 = FindStartCode(&Buf[pos-4], 3);
+        if(info3 != 1)
+            info2 = FindStartCode(&Buf[pos-3], 2);
+        StartCodeFound = (info2 == 1 || info3 == 1);
+    }
+    fseek (inpf, -4, SEEK_CUR);
+    return pos - 4;
 }
 
 UINT WINAPI CSimplePlayerDlg::DecodeThread(LPVOID param)
 {
-    TCHAR m_ShortName[MAX_PATH];
-    int i = 0;
-    wsprintf( m_ShortName, TEXT("snap%4.4ld.bmp\0"), i);
-    pNode pnode = NULL;
-    HWND hwnd = (HWND)param;
-    char temp[30] = {0};
-    HANDLE hf = NULL;
-    
-    while(TRUE)
-    {
-        m_list.getNode(&pnode);
-        if(!pnode)
-        {
-            continue;
-        }
-        hf = CreateFile(m_ShortName, GENERIC_WRITE, FILE_SHARE_READ, NULL,
-            CREATE_ALWAYS, NULL, NULL );
-        if( hf == INVALID_HANDLE_VALUE )
-            return 0;
-        
-        // write out the file header
-        //
-        BITMAPFILEHEADER bfh;
-        memset( &bfh, 0, sizeof( bfh ) );
-        bfh.bfType = 'MB';
-        bfh.bfSize = sizeof( bfh ) + pnode->lSize + sizeof( BITMAPINFOHEADER );
-        bfh.bfOffBits = sizeof( BITMAPINFOHEADER ) + sizeof( BITMAPFILEHEADER );
-        
-        DWORD dwWritten = 0;
-        WriteFile( hf, &bfh, sizeof( bfh ), &dwWritten, NULL );
-        
-        // and the bitmap format
-        //
-        BITMAPINFOHEADER bih;
-        memset( &bih, 0, sizeof( bih ) );
-        bih.biSize = sizeof( bih );
-        bih.biWidth = mCB.lWidth;
-        bih.biHeight = mCB.lHeight;
-        bih.biPlanes = 1;
-        bih.biBitCount = 24;
-        
-        dwWritten = 0;
-        WriteFile( hf, &bih, sizeof( bih ), &dwWritten, NULL );
-        
-        // and the bits themselves
-        //
-        dwWritten = 0;
-        WriteFile( hf, pnode->pbBuffer, pnode->lSize, &dwWritten, NULL );
-        CloseHandle( hf );
-        if(pnode->pbBuffer)
-        {
-            delete pnode->pbBuffer;
-            pnode->pbBuffer = NULL;
-        }
-        delete pnode;
-        pnode = NULL;
-        i++;
+    CSimplePlayerDlg* pMainDlg = (CSimplePlayerDlg*)param;
+    if(pMainDlg->mFilterGraph){
+        TCHAR m_ShortName[MAX_PATH];
+        int i = 0;
         wsprintf( m_ShortName, TEXT("snap%4.4ld.bmp\0"), i);
+        pNode pnode = NULL;
+        HWND hwnd = pMainDlg->mVideoWindow.m_hWnd;
+        char temp[30] = {0};
+        HANDLE hf = NULL;
+        
+        while(TRUE)
+        {
+            m_list.getNode(&pnode);
+            if(!pnode){
+                continue;
+            }
+            hf = CreateFile(m_ShortName, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+                CREATE_ALWAYS, NULL, NULL );
+            if( hf == INVALID_HANDLE_VALUE )
+                return 0;
+            
+            // write out the file header
+            //
+            BITMAPFILEHEADER bfh;
+            memset( &bfh, 0, sizeof( bfh ) );
+            bfh.bfType = 'MB';
+            bfh.bfSize = sizeof( bfh ) + pnode->lSize + sizeof( BITMAPINFOHEADER );
+            bfh.bfOffBits = sizeof( BITMAPINFOHEADER ) + sizeof( BITMAPFILEHEADER );
+            
+            DWORD dwWritten = 0;
+            WriteFile( hf, &bfh, sizeof( bfh ), &dwWritten, NULL );
+            
+            // and the bitmap format
+            //
+            BITMAPINFOHEADER bih;
+            memset( &bih, 0, sizeof( bih ) );
+            bih.biSize = sizeof( bih );
+            bih.biWidth = mCB.lWidth;
+            bih.biHeight = mCB.lHeight;
+            bih.biPlanes = 1;
+            bih.biBitCount = 24;
+            
+            dwWritten = 0;
+            WriteFile( hf, &bih, sizeof( bih ), &dwWritten, NULL );
+            
+            // and the bits themselves
+            //
+            dwWritten = 0;
+            WriteFile( hf, pnode->pbBuffer, pnode->lSize, &dwWritten, NULL );
+            CloseHandle( hf );
+            if(pnode->pbBuffer)
+            {
+                delete pnode->pbBuffer;
+                pnode->pbBuffer = NULL;
+            }
+            delete pnode;
+            pnode = NULL;
+            i++;
+            wsprintf( m_ShortName, TEXT("snap%4.4ld.bmp\0"), i);
+        }
+    }else if(pMainDlg->m_Decoder){
+        FILE * inpf;
+	    int nalLen = 0;
+	    unsigned char* pBuf;
+        unsigned char* pTmp;
+	    unsigned char *pDisplayBuf;
+        int rt;
+        int i_frames = 0;
+        BOOL bSPS = FALSE;
+        BOOL bPPS = FALSE;
+	    pDisplayBuf = (unsigned char*)malloc(MAX_DECBUF_LEN);
+        pBuf = (unsigned char*)malloc( MAX_FRAME_LEN);
+        inpf = fopen(pMainDlg->mSourceFile, "rb");
+        if(!pBuf || !pDisplayBuf || !inpf){
+            return 0;
+        }
+
+	    while(!feof(inpf) && pMainDlg->m_bPlaying)
+	    {
+            bSPS = FALSE;
+            bPPS = FALSE;
+            pTmp = pBuf;
+            if(pMainDlg->m_bPause){
+                Sleep(1);
+                continue;
+            }
+		    nalLen = getNextNal(inpf, pBuf, MAX_FRAME_LEN);
+            if(nalLen <= 5){
+                OutputDebugString("data is too short redetect again\n");
+                continue;
+            }
+            if(nalLen >= MAX_FRAME_LEN){
+                OutputDebugString("data is too long redetect again\n");
+                continue;
+            }
+            while(!feof(inpf) && pMainDlg->m_bPlaying){
+                if(pTmp[3] == 0x67 || pTmp[4] == 0x67){
+                    pTmp = pBuf+nalLen;
+                    nalLen += getNextNal(inpf, pTmp, MAX_FRAME_LEN - nalLen);
+                }else if(pTmp[3] == 0x68 || pTmp[4] == 0x68){
+                    pTmp = pBuf+nalLen;
+                    nalLen += getNextNal(inpf, pTmp, MAX_FRAME_LEN - nalLen);
+                }else if(pTmp[3] == 0x06 || pTmp[4] == 0x06){                   // 补充增强信息
+                    pTmp = pBuf+nalLen;
+                    nalLen += getNextNal(inpf, pTmp, MAX_FRAME_LEN - nalLen);
+                }else{
+                    break;
+                }
+            }
+            rt = pMainDlg->m_Decoder->decode(pBuf, nalLen, pDisplayBuf, 0, 0);
+            if (rt > 0)
+			{
+                if(pMainDlg->m_nWidth == 0){
+                    pMainDlg->m_Decoder->Getsolu(&(pMainDlg->m_nWidth), &(pMainDlg->m_nHeight));
+                    rt = pMainDlg->m_OffscrnRender.init(0, pMainDlg->mVideoWindow.m_hWnd, pMainDlg->m_nWidth, pMainDlg->m_nHeight, NULL);
+                }
+				pMainDlg->SendMessage(WM_DISPLAY_FRAME,(WPARAM)pDisplayBuf,(LPARAM)0);
+                //TRACE("decode one frame!!!!!!!\n");
+			}else{
+				OutputDebugString("解码器错误by ZWW!!!!!!!!!!!!!5");
+			 	pMainDlg->m_Decoder->reset();
+            }
+            //TRACE("pMainDlg->m_bPlaying %d\n", pMainDlg->m_bPlaying);
+        }
+
+        TRACE("H264 while out!!!!!!\n");
+        pMainDlg->m_bPlaying = FALSE;
+        free(pDisplayBuf);
+        free(pBuf);
+        fclose(inpf);
     }
     
     return 1;
@@ -229,7 +376,7 @@ void CSimplePlayerDlg::OnButtonPlay()
         _tcsncpy( mCB.m_szCapDir, CapDir, NUMELMS(mCB.m_szCapDir) );
         g_bOneShot = TRUE;
 
-        m_hThread = (HANDLE)_beginthreadex(NULL, 0, DecodeThread, m_hWnd, 0, NULL);
+        m_hThread = (HANDLE)_beginthreadex(NULL, 0, DecodeThread, this, 0, NULL);
         if (m_hThread == NULL) {
             MessageBox(_T("StartProcess failed"), NULL, MB_OK);
 	    }
@@ -240,7 +387,18 @@ void CSimplePlayerDlg::OnButtonPlay()
 		{
 			mSliderTimer = SetTimer(SLIDER_TIMER, 100, NULL);
 		}
-	}
+    }else if(m_Decoder){
+        m_bPlaying = TRUE;
+        if(m_bPause){
+            m_bPause = FALSE;
+        }else{
+            m_hThread = (HANDLE)_beginthreadex(NULL, 0, DecodeThread, this, 0, NULL);
+            if (m_hThread == NULL) {
+                m_bPlaying = FALSE;
+                MessageBox(_T("StartProcess failed"), NULL, MB_OK);
+            }
+        }
+    }
 }
 
 void CSimplePlayerDlg::OnButtonPause() 
@@ -253,7 +411,9 @@ void CSimplePlayerDlg::OnButtonPause()
 		{
 			mSliderTimer = SetTimer(SLIDER_TIMER, 100, NULL);
 		}
-	}
+    }else if(m_Decoder){
+        m_bPause = TRUE;
+    }
 }
 
 void CSimplePlayerDlg::OnButtonStop() 
@@ -268,7 +428,20 @@ void CSimplePlayerDlg::OnButtonStop()
 			KillTimer(mSliderTimer);
 			mSliderTimer = 0;
 		}
-	}
+    }else if(m_Decoder){
+        m_bPlaying = FALSE;
+        m_bPause = FALSE;
+        if(m_hThread){
+            if(WaitForSingleObject(m_hThread, 3000) == WAIT_TIMEOUT){
+                OutputDebugString("WaitForSingleObject failed will kill the thread\n");
+                TerminateThread(m_hThread,0);
+            }else{
+                TRACE("Decode thread exit!\n");
+            }
+            CloseHandle(m_hThread);
+            m_hThread = NULL;
+        }
+    }
 }
 
 void CSimplePlayerDlg::OnButtonGrab() 
@@ -288,16 +461,13 @@ void CSimplePlayerDlg::OnButtonGrab()
 				::DeleteFile(szTemp);
 			}
 		}
-	}
+    }else{
+        ;
+    }
 }
 
 void CSimplePlayerDlg::OnButtonFullscreen() 
 {
-	/*if (mFilterGraph)
-	{
-		mFilterGraph->SetFullScreen(TRUE);
-	}*/
-
     // modified by ZWW for testing
     if (mFilterGraph)
     {
@@ -316,9 +486,10 @@ void CSimplePlayerDlg::OnButtonFullscreen()
             WndPlacement.showCmd = SW_SHOWMAXIMIZED;
             mVideoWindow.SetWindowPlacement(&WndPlacement);
             mFilterGraph->ResizeVideoWindow(0, 0, cx, cy);
-            //CWnd::SetWindowPos(&wndTopMost, 0, 0, cx, cy, SWP_SHOWWINDOW);
         }
-	}
+    }else if(m_Decoder){
+         
+    }
 }
 
 void CSimplePlayerDlg::CreateGraph(void)
@@ -619,4 +790,13 @@ LRESULT CSimplePlayerDlg::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     if (message == WM_CAPTURE_BITMAP)
         OutputDebugString(_T("WM_CAPTURE_BITMAP message"));//mCB.CopyBitmap(cb.dblSampleTime, cb.pBuffer, cb.lBufferSize);
 	return CDialog::WindowProc(message, wParam, lParam);
+}
+
+LONG CSimplePlayerDlg::OnDisplayFrameMsg(WPARAM wParam, LPARAM lParam)
+{
+    unsigned char* pDisplayBuf = (unsigned char*)wParam;
+    
+    m_OffscrnRender.render(pDisplayBuf, pDisplayBuf+m_nWidth*m_nHeight, pDisplayBuf+m_nWidth*m_nHeight*5/4, m_nWidth, m_nHeight, NULL);
+
+    return 1;
 }

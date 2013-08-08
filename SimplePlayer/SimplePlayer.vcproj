@@ -65,7 +65,7 @@
 				WarningLevel="3"
 				SuppressStartupBanner="true"
 				DebugInformationFormat="4"
-				CallingConvention="2"
+				CallingConvention="0"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
@@ -80,8 +80,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalOptions="/wd4430"
-				AdditionalDependencies="strmbasd.lib uuid.lib winmm.lib"
+				AdditionalDependencies="strmbasd.lib uuid.lib winmm.lib ddraw.lib dxguid.lib"
 				OutputFile=".\Debug/SimplePlayer.exe"
 				LinkIncremental="2"
 				SuppressStartupBanner="true"
@@ -165,7 +164,7 @@
 				ProgramDataBaseFileName=".\Release/"
 				WarningLevel="3"
 				SuppressStartupBanner="true"
-				CallingConvention="2"
+				CallingConvention="0"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
@@ -180,8 +179,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalOptions="/wd4430"
-				AdditionalDependencies="strmbase.lib uuid.lib winmm.lib"
+				AdditionalDependencies="strmbase.lib uuid.lib winmm.lib ddraw.lib dxguid.lib"
 				OutputFile=".\Release/SimplePlayer.exe"
 				LinkIncremental="1"
 				SuppressStartupBanner="true"
@@ -448,11 +446,59 @@
 				>
 			</File>
 		</Filter>
+		<Filter
+			Name="decoder"
+			>
+			<File
+				RelativePath=".\decode\hvdh264videodecode.cpp"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath=".\decode\hvdh264videodecode.h"
+				>
+			</File>
+			<File
+				RelativePath=".\decode\interface.h"
+				>
+			</File>
+		</Filter>
+		<Filter
+			Name="render"
+			>
+			<File
+				RelativePath=".\render\ddoffscreenrender.cpp"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath=".\render\ddoffscreenrender.h"
+				>
+			</File>
+		</Filter>
 		<File
 			RelativePath="ReadMe.txt"
 			>
 		</File>
 	</Files>
 	<Globals>
+		<Global
+			Name="RESOURCE_FILE"
+			Value="SimplePlayer.rc"
+		/>
 	</Globals>
 </VisualStudioProject>

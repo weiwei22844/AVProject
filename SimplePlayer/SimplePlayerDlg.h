@@ -14,6 +14,8 @@
 #include <streams.h>
 #include "CDXGraph.h"
 #include "CTFullScreen.h"
+#include "decode/interface.h"
+#include "render/ddoffscreenrender.h"
 
 #define SLIDER_TIMER   100
 #define WM_CAPTURE_BITMAP   WM_APP + 1
@@ -28,6 +30,14 @@ public:
 	CSimplePlayerDlg(CWnd* pParent = NULL);	// standard constructor
 	~CSimplePlayerDlg();
     static UINT WINAPI DecodeThread(LPVOID param);
+    LONG OnDisplayFrameMsg(WPARAM wParam, LPARAM lParam);
+
+    IDecode* m_Decoder;
+    DDOffscreenRender m_OffscrnRender;
+    BOOL m_bPlaying;
+    BOOL m_bPause;
+    int m_nWidth;
+    int m_nHeight;
 
 // Dialog Data
 	//{{AFX_DATA(CSimplePlayerDlg)
