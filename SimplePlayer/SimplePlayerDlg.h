@@ -38,6 +38,7 @@ public:
     BOOL m_bPause;
     int m_nWidth;
     int m_nHeight;
+    int m_nFrameRate;
 
 // Dialog Data
 	//{{AFX_DATA(CSimplePlayerDlg)

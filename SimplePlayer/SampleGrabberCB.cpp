@@ -130,17 +130,14 @@ BOOL CSampleGrabberCB::CopyBitmap( double dblSampleTime, BYTE * pBuffer, long lB
     
     // we only take one at a time
     //
-    g_bOneShot = TRUE;                 // make change there by zww
+    //g_bOneShot = TRUE;                 // make change there by zww
     
     // figure out where to capture to
     //
     TCHAR m_ShortName[MAX_PATH];
     
-    wsprintf( m_szSnappedName, TEXT("%sStillCap%4.4ld.bmp\0"), 
-        m_szCapDir, pOwner->m_nCapTimes );
-    
-    wsprintf( m_ShortName, TEXT("StillCap%4.4ld.bmp\0"), 
-        pOwner->m_nCapTimes );
+    wsprintf( m_szSnappedName, TEXT("%sStillCap%4.4ld.bmp\0"), m_szCapDir, pOwner->m_nCapTimes );
+    wsprintf( m_ShortName, TEXT("StillCap%4.4ld.bmp\0"), pOwner->m_nCapTimes );
     
     pOwner->m_nCapTimes++;
     if(pOwner->m_nCapTimes > 20)
@@ -150,15 +147,11 @@ BOOL CSampleGrabberCB::CopyBitmap( double dblSampleTime, BYTE * pBuffer, long lB
     
     // write out a BMP file
     //
-    HANDLE hf = CreateFile(
-        m_szSnappedName, GENERIC_WRITE, FILE_SHARE_READ, NULL,
-        CREATE_ALWAYS, NULL, NULL );
-    
+    HANDLE hf = CreateFile(m_szSnappedName, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, NULL, NULL);
     if( hf == INVALID_HANDLE_VALUE )
         return 0;
     
     // write out the file header
-    //
     BITMAPFILEHEADER bfh;
     memset( &bfh, 0, sizeof( bfh ) );
     bfh.bfType = 'MB';
@@ -169,7 +162,6 @@ BOOL CSampleGrabberCB::CopyBitmap( double dblSampleTime, BYTE * pBuffer, long lB
     WriteFile( hf, &bfh, sizeof( bfh ), &dwWritten, NULL );
     
     // and the bitmap format
-    //
     BITMAPINFOHEADER bih;
     memset( &bih, 0, sizeof( bih ) );
     bih.biSize = sizeof( bih );

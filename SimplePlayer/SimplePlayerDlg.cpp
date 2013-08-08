@@ -25,6 +25,7 @@ extern HWND g_hwnd;
 extern CTList m_list;
 
 #define WM_DISPLAY_FRAME WM_USER+101
+#define WM_SLIDER_UPDATE WM_USER+102
 
 #define MAX_FRAME_LEN 1024*500
 #define MAX_DECBUF_LEN 1920*1080*4
@@ -47,6 +48,7 @@ CSimplePlayerDlg::CSimplePlayerDlg(CWnd* pParent /*=NULL*/)
     m_Decoder = NULL;
     m_bPlaying = FALSE;
     m_bPause = FALSE;
+    m_nFrameRate = 25;
 }
 
 CSimplePlayerDlg::~CSimplePlayerDlg()
@@ -168,6 +170,7 @@ void CSimplePlayerDlg::OnButtonOpen()
 	if (IDOK == dlgOpen.DoModal()) 
 	{
 		mSourceFile = dlgOpen.GetPathName();
+        SetWindowText(mSourceFile);
 		// Rebuild the file playback filter graph
         CString csSuf;
         csSuf = GetSuffix(mSourceFile);
@@ -298,6 +301,7 @@ UINT WINAPI CSimplePlayerDlg::DecodeThread(LPVOID param)
 	    unsigned char *pDisplayBuf;
         int rt;
         int i_frames = 0;
+        
         BOOL bSPS = FALSE;
         BOOL bPPS = FALSE;
 	    pDisplayBuf = (unsigned char*)malloc(MAX_DECBUF_LEN);
@@ -306,7 +310,9 @@ UINT WINAPI CSimplePlayerDlg::DecodeThread(LPVOID param)
         if(!pBuf || !pDisplayBuf || !inpf){
             return 0;
         }
-
+        fseek(inpf, 0L, SEEK_END);
+        LONG lTotal = ftell(inpf);
+        fseek(inpf, 0L, SEEK_SET);
 	    while(!feof(inpf) && pMainDlg->m_bPlaying)
 	    {
             bSPS = FALSE;
@@ -353,6 +359,15 @@ UINT WINAPI CSimplePlayerDlg::DecodeThread(LPVOID param)
 			 	pMainDlg->m_Decoder->reset();
             }
             //TRACE("pMainDlg->m_bPlaying %d\n", pMainDlg->m_bPlaying);
+            if(pMainDlg->m_nHeight >= 1080){
+                Sleep(1000/(pMainDlg->m_nFrameRate+10));
+            }else if(pMainDlg->m_nHeight >= 720){
+                Sleep(1000/(pMainDlg->m_nFrameRate+5));
+            }else{
+                Sleep(1000/(pMainDlg->m_nFrameRate+2));
+            }
+            
+            ::PostMessage(pMainDlg->m_hWnd, WM_SLIDER_UPDATE, ftell(inpf), lTotal);
         }
 
         TRACE("H264 while out!!!!!!\n");
@@ -374,7 +389,7 @@ void CSimplePlayerDlg::OnButtonPlay()
         wsprintf( szFilename, TEXT("%sStillCap%04d.avi\0"), (LPCTSTR) CapDir, m_nCapTimes );
         wsprintf( szFile, TEXT("StillCap%04d.avi\0"), m_nCapTimes );
         _tcsncpy( mCB.m_szCapDir, CapDir, NUMELMS(mCB.m_szCapDir) );
-        g_bOneShot = TRUE;
+        //g_bOneShot = TRUE;
 
         m_hThread = (HANDLE)_beginthreadex(NULL, 0, DecodeThread, this, 0, NULL);
         if (m_hThread == NULL) {
@@ -434,7 +449,7 @@ void CSimplePlayerDlg::OnButtonStop()
         if(m_hThread){
             if(WaitForSingleObject(m_hThread, 3000) == WAIT_TIMEOUT){
                 OutputDebugString("WaitForSingleObject failed will kill the thread\n");
-                TerminateThread(m_hThread,0);
+                TerminateThread(m_hThread, 0);
             }else{
                 TRACE("Decode thread exit!\n");
             }
@@ -574,17 +589,19 @@ void CSimplePlayerDlg::RestoreFromFullScreen(void)
 
 void CSimplePlayerDlg::OnTimer(UINT nIDEvent) 
 {
-	if (nIDEvent == mSliderTimer && mFilterGraph)
+	if (nIDEvent == mSliderTimer)
 	{
-		double pos = 0, duration = 1.;
-		mFilterGraph->GetCurrentPosition(&pos);
-		mFilterGraph->GetDuration(&duration);
-		// Get the new position, and update the slider
-		int newPos = int(pos * 1000 / duration);
-		if (mSliderGraph.GetPos() != newPos)
-		{
-			mSliderGraph.SetPos(newPos);
-		}
+        if(mFilterGraph){
+		    double pos = 0, duration = 1.;
+		    mFilterGraph->GetCurrentPosition(&pos);
+		    mFilterGraph->GetDuration(&duration);
+		    // Get the new position, and update the slider
+		    int newPos = int(pos * 1000 / duration);
+		    if (mSliderGraph.GetPos() != newPos)
+		    {
+			    mSliderGraph.SetPos(newPos);
+		    }
+        }
 	}
 
 	CDialog::OnTimer(nIDEvent);
@@ -742,30 +759,34 @@ void CSimplePlayerDlg::OnButtonTest()
 void CSimplePlayerDlg::OnBtnRatedown() 
 {
 	// TODO: Add your control notification handler code here
-    if (!mFilterGraph)
+    if (mFilterGraph)
     {
-        return;
-    }
-    
-    if(!mFilterGraph->ModifyRate(-0.1))
-    {
-        MessageBox(_T("ModifyRate failed"));
-        return;
+        if(!mFilterGraph->ModifyRate(-0.1))
+        {
+            MessageBox(_T("ModifyRate failed"));
+        }
+    }else if(m_Decoder){
+        m_nFrameRate -= 5;
+        if(m_nFrameRate < 5){
+            m_nFrameRate = 5;
+        }
     }
 }
 
 void CSimplePlayerDlg::OnBtnRateup() 
 {
 	// TODO: Add your control notification handler code here
-    if (!mFilterGraph)
+    if (mFilterGraph)
     {
-        return;
-    }
-    
-    if(!mFilterGraph->ModifyRate(0.1))
-    {
-        MessageBox(_T("ModifyRate failed"));
-        return;
+        if(!mFilterGraph->ModifyRate(0.1))
+        {
+            MessageBox(_T("ModifyRate failed"));
+        }
+    }else if(m_Decoder){
+        m_nFrameRate += 5;
+        if(m_nFrameRate > 70){
+            m_nFrameRate = 70;
+        }
     }
 }
 
@@ -774,13 +795,12 @@ void CSimplePlayerDlg::OnBtnRatenormal()
 	// TODO: Add your control notification handler code here
     if (!mFilterGraph)
     {
-        return;
-    }
-    
-    if(!mFilterGraph->SetRate(1.0))
-    {
-        MessageBox(_T("Set normal rate failed"));
-        return;
+        if(!mFilterGraph->SetRate(1.0))
+        {
+            MessageBox(_T("Set normal rate failed"));
+        }
+    }else if(m_Decoder){
+        m_nFrameRate = 25;
     }
 }
 
@@ -789,6 +809,11 @@ LRESULT CSimplePlayerDlg::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
 	// TODO: Add your specialized code here and/or call the base class
     if (message == WM_CAPTURE_BITMAP)
         OutputDebugString(_T("WM_CAPTURE_BITMAP message"));//mCB.CopyBitmap(cb.dblSampleTime, cb.pBuffer, cb.lBufferSize);
+    else if(message == WM_SLIDER_UPDATE){
+        LONG nPos = wParam;
+        LONG nTotal = lParam;
+        mSliderGraph.SetPos(nPos * 1000.0 / nTotal);
+    }
 	return CDialog::WindowProc(message, wParam, lParam);
 }
 
