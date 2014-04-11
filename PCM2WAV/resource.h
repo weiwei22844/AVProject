@@ -2,6 +2,8 @@
 // Microsoft Developer Studio generated include file.
 // Used by PCM2WAV.rc
 //
+#define IDC_                            3
+#define IDC_BTN_PCM2OPUS                3
 #define IDM_ABOUTBOX                    0x0010
 #define IDD_ABOUTBOX                    100
 #define IDS_ABOUTBOX                    101

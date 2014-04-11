@@ -68,6 +68,7 @@ protected:
 	afx_msg void OnBtnWavfile();
 	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
 	afx_msg void OnDropFiles(HDROP hDropInfo);
+	afx_msg void OnBtnPcm2opus();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

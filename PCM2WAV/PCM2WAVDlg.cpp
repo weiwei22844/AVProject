@@ -6,6 +6,8 @@
 #include "PCM2WAVDlg.h"
 #include "Mmsystem.h"		// this header file is for PCM play(Winmm.lib)
 
+#include "opus.h"
+
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #undef THIS_FILE
@@ -97,6 +99,7 @@ BEGIN_MESSAGE_MAP(CPCM2WAVDlg, CDialog)
 	ON_BN_CLICKED(IDC_BTN_WAVFILE, OnBtnWavfile)
 	ON_WM_CTLCOLOR()
 	ON_WM_DROPFILES()
+	ON_BN_CLICKED(IDC_BTN_PCM2OPUS, OnBtnPcm2opus)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -685,4 +688,83 @@ void CPCM2WAVDlg::OnDropFiles(HDROP hDropInfo)
 	}
 
 	CDialog::OnDropFiles(hDropInfo);
+}
+
+void CPCM2WAVDlg::OnBtnPcm2opus() 
+{
+	// TODO: Add your control notification handler code here
+    BOOL bRt;
+    bRt = TestInput();
+    if(!bRt)
+    {
+        return;
+    }
+    
+    HANDLE hFile = NULL;
+    hFile = CreateFile(m_fileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (hFile == NULL)
+    {
+        MessageBox("can not open source file");
+        return;
+    }	
+    DWORD dwDatalen;
+    dwDatalen = GetFileSize(hFile, NULL);
+    if (dwDatalen == 0xFFFFFFFF)
+    {
+        CloseHandle(hFile);
+        MessageBox("get data file length error");
+        return;
+    }
+    BYTE* pBuf = new BYTE[dwDatalen];
+    if(pBuf == NULL)
+    {
+        CloseHandle(hFile);
+        MessageBox("Can not get enough memory");
+        return;
+    }
+    
+    DWORD len;
+    SetFilePointer(hFile, 0, 0, FILE_BEGIN);
+    bRt = ReadFile(hFile, pBuf, dwDatalen, &len, NULL);
+    if(!bRt)
+    {
+        MessageBox("Read file failed");
+        CloseHandle(hFile);
+        delete pBuf;
+        return;
+    }
+    CloseHandle(hFile);
+    
+    WAVFILEHEADER wavfileHead;
+    memcpy(wavfileHead.header, "RIFF", sizeof(wavfileHead.header));
+    wavfileHead.dwSize = dwDatalen + sizeof(WAVFILEHEADER);
+    memcpy(wavfileHead.wave, "WAVE", sizeof(wavfileHead.wave));
+    memcpy(wavfileHead.Fmt, "fmt ", sizeof(wavfileHead.Fmt));
+    wavfileHead.dwFmtSize = 16;
+    wavfileHead.sWaveType = 1;
+    
+    wavfileHead.sChannelNum = m_nChannel;
+    wavfileHead.dwSmpFrq = m_nSamplePSec;
+    wavfileHead.dwSmpSzPerSnd = m_nBitPSample/8*m_nSamplePSec*m_nChannel;
+    wavfileHead.sBypeOfSmp = m_nBitPSample/8*m_nChannel;
+    wavfileHead.sBitOfSmp = m_nBitPSample;
+    
+    CHAR dataFlg[4];
+    memcpy(dataFlg, "data", 4);
+    
+    FILE* pfile = fopen("Test.wav", "wb");
+    if(pfile)
+    {
+        fwrite(&wavfileHead, 1, sizeof(WAVFILEHEADER), pfile);
+        fwrite(dataFlg, 1, 4, pfile);
+        fwrite(&dwDatalen, 1, 4, pfile);
+        fwrite(pBuf, 1, dwDatalen, pfile);
+        fclose(pfile);
+        MessageBox("完成转换");
+    }else{
+        MessageBox("打开写入文件错误");
+    }
+    
+    if(pBuf)
+		delete pBuf;
 }
