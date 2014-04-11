@@ -7,6 +7,7 @@
 #include "Mmsystem.h"		// this header file is for PCM play(Winmm.lib)
 
 #include "opus.h"
+#define MAX_PACKET (1500)
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -734,35 +735,29 @@ void CPCM2WAVDlg::OnBtnPcm2opus()
         return;
     }
     CloseHandle(hFile);
-    
-    WAVFILEHEADER wavfileHead;
-    memcpy(wavfileHead.header, "RIFF", sizeof(wavfileHead.header));
-    wavfileHead.dwSize = dwDatalen + sizeof(WAVFILEHEADER);
-    memcpy(wavfileHead.wave, "WAVE", sizeof(wavfileHead.wave));
-    memcpy(wavfileHead.Fmt, "fmt ", sizeof(wavfileHead.Fmt));
-    wavfileHead.dwFmtSize = 16;
-    wavfileHead.sWaveType = 1;
-    
-    wavfileHead.sChannelNum = m_nChannel;
-    wavfileHead.dwSmpFrq = m_nSamplePSec;
-    wavfileHead.dwSmpSzPerSnd = m_nBitPSample/8*m_nSamplePSec*m_nChannel;
-    wavfileHead.sBypeOfSmp = m_nBitPSample/8*m_nChannel;
-    wavfileHead.sBitOfSmp = m_nBitPSample;
-    
-    CHAR dataFlg[4];
-    memcpy(dataFlg, "data", 4);
-    
-    FILE* pfile = fopen("Test.wav", "wb");
-    if(pfile)
-    {
-        fwrite(&wavfileHead, 1, sizeof(WAVFILEHEADER), pfile);
-        fwrite(dataFlg, 1, 4, pfile);
-        fwrite(&dwDatalen, 1, 4, pfile);
-        fwrite(pBuf, 1, dwDatalen, pfile);
-        fclose(pfile);
+
+    unsigned char packet[MAX_PACKET+257];
+    int errorNo;
+    OpusEncoder *pOpusEncoder = opus_encoder_create( m_nSamplePSec, m_nChannel, OPUS_APPLICATION_VOIP, &errorNo);
+    if(pOpusEncoder){
+        int dataLeft = dwDatalen;
+        FILE* pfile = fopen("test.opus", "wb");
+        while(pfile && dataLeft>0){
+            int res = opus_encode( pOpusEncoder, (short*)pBuf, 480, packet, MAX_PACKET );
+            if(res>0){
+                if(pfile)
+                {
+                    fwrite(packet, 1, res, pfile);
+                }
+            }
+            pBuf+=480*2;
+            dataLeft-=480*2;
+        }
+        if(pfile)
+            fclose(pfile);
         MessageBox("完成转换");
-    }else{
-        MessageBox("打开写入文件错误");
+
+        opus_encoder_destroy(pOpusEncoder);
     }
     
     if(pBuf)

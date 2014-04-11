@@ -150,6 +150,7 @@
 				Name="VCCLCompilerTool"
 				Optimization="2"
 				InlineFunctionExpansion="1"
+				AdditionalIncludeDirectories="opus/include"
 				PreprocessorDefinitions="WIN32;NDEBUG;_WINDOWS"
 				StringPooling="true"
 				RuntimeLibrary="2"
@@ -177,10 +178,11 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="Winmm.lib"
+				AdditionalDependencies="Winmm.lib  celt.lib silk_common.lib silk_float.lib opus.lib"
 				OutputFile=".\Release/PCM2WAV.exe"
 				LinkIncremental="1"
 				SuppressStartupBanner="true"
+				AdditionalLibraryDirectories="opus/libs"
 				ProgramDatabaseFile=".\Release/PCM2WAV.pdb"
 				SubSystem="2"
 				RandomizedBaseAddress="1"
@@ -345,5 +347,9 @@
 		</File>
 	</Files>
 	<Globals>
+		<Global
+			Name="RESOURCE_FILE"
+			Value="PCM2WAV.rc"
+		/>
 	</Globals>
 </VisualStudioProject>
